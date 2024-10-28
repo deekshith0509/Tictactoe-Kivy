@@ -40,10 +40,12 @@ To build an APK for Android, you can use Buildozer. Make sure you have Buildozer
 buildozer -v android debug
 ```
 This will create a debug APK in the bin/ directory.
-License
+
+## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
-Acknowledgments
+
+## Acknowledgments
 
  - Kivy - The framework used for building the application.
  - KivyMD - Material Design components for Kivy.
