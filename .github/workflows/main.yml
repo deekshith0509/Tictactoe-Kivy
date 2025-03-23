@@ -41,7 +41,10 @@ jobs:
           python -m pip install --upgrade pip setuptools cython
 
       - name: Install Buildozer
-        run: pip install --user --upgrade buildozer
+        run: |
+          python -m pip install --upgrade --force-reinstall buildozer
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
 
   configure:
     name: Configure Buildozer
