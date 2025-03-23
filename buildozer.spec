@@ -12,7 +12,7 @@ requirements = python3,kivy,kivymd,markdown,materialyoucolor,exceptiongroup,asyn
 fullscreen = 0
 version = 0.2
 android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,MANAGE_EXTERNAL_STORAGE,READ_MEDIA_IMAGES,READ_MEDIA_VIDEO,READ_MEDIA_AUDIO
-
+android.accept_sdk_license = True
 android.release_artifact = apk
 android.presplash_color = #FFFFFF
 
