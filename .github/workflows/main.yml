@@ -1,61 +1,93 @@
-name: CI
+name: Build Kivy APK
+
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+
 jobs:
-  build:
+  setup:
+    name: Setup Environment
     runs-on: ubuntu-20.04
+
     steps:
-      # Checkout the repository
       - name: Checkout Code
         uses: actions/checkout@v3
-      
-      # Set up Temurin Java 17
+
       - name: Set up Temurin Java 17
         uses: actions/setup-java@v3
         with:
           distribution: 'temurin'
           java-version: '17'
-      
-      # Set up Python
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      
-      # Install Buildozer and dependencies
-      - name: Install Buildozer and dependencies
+
+      - name: Install Buildozer Dependencies
         run: |
           sudo apt update && sudo apt install -y \
-            python3-pip python3-setuptools python3-wheel git zip unzip zlib1g-dev \
-            libncurses5 libffi-dev libssl-dev liblzma-dev libgdbm-dev libbz2-dev libreadline-dev \
-            libsqlite3-dev libffi-dev libgdbm-compat-dev curl
-          python3 -m pip install --upgrade pip setuptools cython
-          python3 -m pip install buildozer
-      
-      # Set up Android SDK and NDK
-      - name: Install Android SDK and NDK
+            python3-pip python3-setuptools python3-wheel \
+            git zip unzip openjdk-17-jdk \
+            virtualenv \
+            build-essential libsqlite3-dev sqlite3 bzip2 libbz2-dev \
+            zlib1g-dev libssl-dev libncurses5-dev libncursesw5-dev \
+            libreadline-dev libsqlite3-dev libgdbm-dev libdb5.3-dev \
+            libbz2-dev libexpat1-dev liblzma-dev libffi-dev \
+            libtool pkg-config \
+            libgl1 libgles2 autoconf automake
+          python -m pip install --upgrade pip setuptools cython
+
+      - name: Install Buildozer
+        run: pip install --user --upgrade buildozer
+
+  configure:
+    name: Configure Buildozer
+    runs-on: ubuntu-20.04
+    needs: setup
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Accept SDK Licenses & Prepare Environment
         run: |
-          mkdir -p ~/.buildozer/android/platform
-          wget https://dl.google.com/android/repository/commandlinetools-linux-8512546_latest.zip -O /tmp/cmdline-tools.zip
-          unzip -d ~/.buildozer/android/platform /tmp/cmdline-tools.zip
-          rm /tmp/cmdline-tools.zip
-          yes | ~/.buildozer/android/platform/cmdline-tools/bin/sdkmanager --sdk_root=~/.buildozer/android/platform "platform-tools" "build-tools;33.0.2" "platforms;android-33" "ndk;25.2.9519653"
-      
-      # Initialize Buildozer (if not already initialized)
-      - name: Initialize Buildozer
+          mkdir -p ~/.android
+          echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > ~/.android/repositories.cfg
+          yes | buildozer android update --sdk_dir=$HOME/.buildozer/android/platform/android-sdk
+
+      - name: Initialize & Configure Buildozer
         run: |
           if [ ! -f buildozer.spec ]; then
             buildozer init
+            sed -i 's/^#android.accept_sdk_license =.*/android.accept_sdk_license = True/g' buildozer.spec
+            sed -i 's/^android.api =.*/android.api = 33/g' buildozer.spec
+          else
+            if ! grep -q "android.accept_sdk_license = True" buildozer.spec; then
+              sed -i 's/^#android.accept_sdk_license =.*/android.accept_sdk_license = True/g' buildozer.spec
+              if ! grep -q "android.accept_sdk_license" buildozer.spec; then
+                echo "android.accept_sdk_license = True" >> buildozer.spec
+              fi
+            fi
           fi
-      
-      # Build the Android APK
-      - name: Build Android APK
+
+  build:
+    name: Build APK
+    runs-on: ubuntu-20.04
+    needs: configure
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Build APK with Buildozer
         run: |
+          export PATH=$PATH:~/.local/bin
           buildozer android debug
-      
-      # Upload the APK as an artifact
-      - name: Upload APK artifact
+
+      - name: Store APK as Artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
