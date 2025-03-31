@@ -1,22 +1,21 @@
-from kivymd.app import MDApp
-from kivymd.uix.screen import MDScreen
-from kivymd.uix.screenmanager import MDScreenManager
-from kivymd.uix.button import MDRaisedButton, MDIconButton, MDFlatButton
-from kivymd.uix.label import MDLabel
-from kivymd.uix.card import MDCard
-from kivymd.uix.dialog import MDDialog
-from kivymd.uix.boxlayout import MDBoxLayout
-from kivymd.uix.gridlayout import MDGridLayout
-from kivymd.uix.behaviors import RoundedRectangularElevationBehavior
-from kivymd.uix.textfield import MDTextField
-from kivy.metrics import dp
-from kivy.properties import BooleanProperty, NumericProperty, StringProperty
+from kivy.app import App
+from kivy.uix.screenmanager import ScreenManager, Screen
+from kivy.uix.button import Button
+from kivy.uix.label import Label
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.popup import Popup
 from kivy.storage.jsonstore import JsonStore
 from kivy.clock import Clock
 from kivy.animation import Animation
-from datetime import datetime
-import random, math, numpy as np
+from kivy.metrics import dp
+from kivy.properties import StringProperty
+from kivy.graphics import Color, Rectangle, Line, Ellipse
 from kivy.utils import platform
+from datetime import datetime
+import random
+from kivy.graphics.vertex_instructions import RoundedRectangle
+
 
 class GameData:
     def __init__(self):
@@ -25,7 +24,6 @@ class GameData:
             json_path = app_storage_path() + '/game_data.json'
         else:
             json_path = 'game_data.json'
-
         self.store = JsonStore(json_path)
         self.stats = self.store.get('stats') if self.store.exists('stats') else {'total_time': 0, 'games': 0, 'x_wins': 0, 'o_wins': 0, 'draws': 0}
         self.ratings = self.store.get('ratings') if self.store.exists('ratings') else {'easy': 1200, 'medium': 1200, 'hard': 1200}
@@ -37,48 +35,29 @@ class GameData:
         else: self.stats['draws'] += 1
         self.save()
 
-
-
-
 class AIEngine:
     def __init__(self, difficulty='medium'):
         self.depths = {'easy': 2, 'medium': 4, 'hard': 6}
         self.depth = self.depths[difficulty]
-
     def get_move(self, board):
         empty = [i for i, x in enumerate(board) if not x]
-        if not empty:
-            return None
-        
-        best_score = float('-inf')
-        best_move = empty[0]
-        alpha = float('-inf')
-        beta = float('inf')
-        
+        if not empty: return None
+        best_score, best_move, alpha, beta = float('-inf'), empty[0], float('-inf'), float('inf')
         for pos in empty:
             board[pos] = 'O'
             score = self.minimax(board, self.depth, False, alpha, beta)
             board[pos] = ''
             if score > best_score:
-                best_score = score
-                best_move = pos
+                best_score, best_move = score, pos
             alpha = max(alpha, best_score)
-            if beta <= alpha:
-                break
+            if beta <= alpha: break
         return best_move
-
     def minimax(self, board, depth, is_max, alpha, beta):
         winner = self.check_winner(board)
-        if winner:
-            return 100 if winner == 'O' else -100
-        
-        if depth == 0 or '' not in board:
-            return self.evaluate_board(board)
-        
+        if winner: return 100 if winner == 'O' else -100
+        if depth == 0 or '' not in board: return self.evaluate_board(board)
         empty = [i for i, x in enumerate(board) if not x]
-        if not empty:
-            return 0
-            
+        if not empty: return 0
         if is_max:
             max_score = float('-inf')
             for pos in empty:
@@ -87,8 +66,7 @@ class AIEngine:
                 board[pos] = ''
                 max_score = max(max_score, score)
                 alpha = max(alpha, max_score)
-                if beta <= alpha:
-                    break
+                if beta <= alpha: break
             return max_score
         else:
             min_score = float('inf')
@@ -98,149 +76,326 @@ class AIEngine:
                 board[pos] = ''
                 min_score = min(min_score, score)
                 beta = min(beta, min_score)
-                if beta <= alpha:
-                    break
+                if beta <= alpha: break
             return min_score
-
     def evaluate_board(self, board):
         wins = [(0,1,2), (3,4,5), (6,7,8), (0,3,6), (1,4,7), (2,5,8), (0,4,8), (2,4,6)]
         score = 0
         for w in wins:
             line = [board[i] for i in w]
-            if line.count('O') == 2 and line.count('') == 1:
-                score += 5
-            elif line.count('X') == 2 and line.count('') == 1:
-                score -= 5
-            elif line.count('O') == 3:
-                score += 100
-            elif line.count('X') == 3:
-                score -= 100
+            if line.count('O') == 2 and line.count('') == 1: score += 5
+            elif line.count('X') == 2 and line.count('') == 1: score -= 5
+            elif line.count('O') == 3: score += 100
+            elif line.count('X') == 3: score -= 100
         return score
-
     def check_winner(self, board):
         wins = [(0,1,2), (3,4,5), (6,7,8), (0,3,6), (1,4,7), (2,5,8), (0,4,8), (2,4,6)]
         for i, j, k in wins:
-            if board[i] and board[i] == board[j] == board[k]:
-                return board[i]
+            if board[i] and board[i] == board[j] == board[k]: return board[i]
         return None
-        
-        
-class GameButton(MDRaisedButton):
+
+class StyledButton(Button):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.font_size = dp(24)
-        self.size_hint = (1, 1)
-        self.elevation = 3
-        self.md_bg_color = [0.95, 0.95, 0.95, 1]
-class HomeScreen(MDScreen):
+        self.background_color = (0, 0, 0, 0)
+        self.background_normal = ''
+        self.color = (0.1, 0.1, 0.1, 1)
+        self.font_size = dp(18)
+
+    def on_size(self, *args):
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(0.93, 0.93, 0.93, 1)  # Light gray background
+            Rectangle(pos=self.pos, size=self.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(self.x, self.y, self.width, self.height), width=1.5)
+
+            # Professional gradient effect
+            Color(0.2, 0.4, 0.6, 0.2)  # Subtle blue tint
+            Rectangle(pos=(self.x, self.y), size=(self.width, self.height/2))
+
+
+
+class GameButton(Button):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        layout = MDBoxLayout(orientation='vertical', padding=dp(16), spacing=dp(8))
-        header = MDBoxLayout(size_hint_y=0.1)
-        logs_btn = MDIconButton(icon="text-box-outline", pos_hint={'center_y': 0.5})
-        stats_btn = MDIconButton(icon="trophy-outline", pos_hint={'center_y': 0.5})
-        logs_btn.bind(on_release=lambda x: setattr(self.manager, 'current', 'logs'))
+        self.background_color = (0, 0, 0, 0)
+        self.background_normal = ''
+        self.mark = ''
+        self.bind(size=self.enforce_square)  # Ensure square size
+
+    def enforce_square(self, *args):
+        """Ensure the button remains a perfect square."""
+        min_side = min(self.size)  # Take the smallest dimension
+        self.size = (min_side, min_side)  # Force square shape
+
+    def on_size(self, *args):
+        self.canvas.before.clear()
+        with self.canvas.before:
+            Color(0.95, 0.95, 0.95, 1)  # Light gray background
+            Rectangle(pos=self.pos, size=self.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(self.x, self.y, self.width, self.height), width=2)
+
+    def set_mark(self, mark):
+        self.mark = mark
+        self.canvas.after.clear()
+        if mark == 'X':
+            with self.canvas.after:
+                Color(0.8, 0.2, 0.2, 1)  # Professional red
+                Line(points=[self.x + dp(10), self.y + dp(10),
+                            self.x + self.width - dp(10), self.y + self.height - dp(10)],
+                    width=dp(3))
+                Line(points=[self.x + self.width - dp(10), self.y + dp(10),
+                            self.x + dp(10), self.y + self.height - dp(10)],
+                    width=dp(3))
+        elif mark == 'O':
+            with self.canvas.after:
+                Color(0.2, 0.4, 0.8, 1)  # Professional blue
+                Line(ellipse=(self.x + dp(10), self.y + dp(10),
+                            self.width - dp(20), self.height - dp(20)),
+                    width=dp(3))
+
+
+
+class HomeScreen(Screen):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        layout = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(15))
+
+        title_layout = BoxLayout(size_hint_y=0.2)
+        title = Label(text="Tic Tac Toe", font_size=dp(40), color=(0.1, 0.3, 0.5, 1))
+        title_layout.add_widget(title)
+
+        layout.add_widget(title_layout)
+
+        buttons_layout = BoxLayout(orientation='vertical', spacing=dp(20), size_hint_y=0.5)
+
+        # Create professional buttons
+        single_btn = StyledButton(text="Single Player", size_hint=(0.7, 0.4))
+        multi_btn = StyledButton(text="Two Players", size_hint=(0.7, 0.4))
+        stats_btn = StyledButton(text="Statistics", size_hint=(0.7, 0.4))
+        logs_btn = StyledButton(text="Game Logs", size_hint=(0.7, 0.4))
+
+        single_btn.bind(on_release=lambda x: setattr(self.manager, 'current', 'difficulty'))
+        multi_btn.bind(on_release=lambda x: self.start_game('medium', False))
         stats_btn.bind(on_release=lambda x: setattr(self.manager, 'current', 'stats'))
-        header.add_widget(logs_btn)
-        header.add_widget(MDLabel(text="Tic Tac Toe", halign='center', font_style='H5'))
-        header.add_widget(stats_btn)
-        layout.add_widget(header)
-        modes = [('single', 'Single Player'), ('multi', 'Two Players')]
-        for mode, text in modes:
-            btn = MDRaisedButton(text=text, size_hint=(None, None), size=(dp(200), dp(50)), pos_hint={'center_x': 0.5})
-            btn.bind(on_release=lambda x, m=mode: self.select_mode(m))
-            layout.add_widget(btn)
+        logs_btn.bind(on_release=lambda x: setattr(self.manager, 'current', 'logs'))
+
+        for btn in [single_btn, multi_btn, stats_btn, logs_btn]:
+            btn_layout = BoxLayout()
+            btn_layout.add_widget(BoxLayout(size_hint_x=0.15))
+            btn_layout.add_widget(btn)
+            btn_layout.add_widget(BoxLayout(size_hint_x=0.15))
+            buttons_layout.add_widget(btn_layout)
+
+        layout.add_widget(buttons_layout)
+        layout.add_widget(BoxLayout(size_hint_y=0.3))
+
+        with self.canvas.before:
+            Color(0.97, 0.97, 0.97, 1)  # Professional white background
+            self.rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._update_rect, size=self._update_rect)
+
         self.add_widget(layout)
-    def select_mode(self, mode):
-        if mode == 'single': self.manager.current = 'difficulty'
-        else: self.start_game('medium', False)
+
+    def _update_rect(self, instance, value):
+        self.rect.pos = instance.pos
+        self.rect.size = instance.size
+
     def start_game(self, difficulty, is_ai):
         game_screen = self.manager.get_screen('game')
         game_screen.setup_game(difficulty, is_ai)
         self.manager.current = 'game'
-class DifficultyScreen(MDScreen):
+
+class DifficultyScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        layout = MDBoxLayout(orientation='vertical', padding=dp(16), spacing=dp(8))
-        back_btn = MDIconButton(icon="arrow-left", pos_hint={'center_x': 0.1})
+        layout = BoxLayout(orientation='vertical', padding=dp(20), spacing=dp(15))
+
+        header = BoxLayout(size_hint_y=0.15)
+        back_btn = Button(text="back", size_hint=(0.15, 1), background_normal='',
+                         font_size=dp(30), color=(0,0,0))
+        with back_btn.canvas.before:
+            Color(0.1, 0.3, 0.5, 1)  # Professional blue
+            Rectangle(pos=back_btn.pos, size=back_btn.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(back_btn.pos[0], back_btn.pos[1], back_btn.width, back_btn.height), width=1)
         back_btn.bind(on_release=lambda x: setattr(self.manager, 'current', 'home'))
-        layout.add_widget(back_btn)
-        layout.add_widget(MDLabel(text="Select Difficulty", halign='center', font_style='H5'))
-        for diff in ['easy', 'medium', 'hard']:
-            btn = MDRaisedButton(text=diff.title(), size_hint=(None, None), size=(dp(200), dp(50)), pos_hint={'center_x': 0.5})
+        back_btn.bind(pos=self._update_back_btn, size=self._update_back_btn)
+        header.add_widget(back_btn)
+        header.add_widget(Label(text="Select Difficulty", font_size=dp(28), color=(0.1, 0.3, 0.5, 1)))
+        header.add_widget(BoxLayout(size_hint_x=0.15))
+
+        layout.add_widget(header)
+        layout.add_widget(BoxLayout(size_hint_y=0.1))
+
+        buttons_layout = BoxLayout(orientation='vertical', spacing=dp(20), size_hint_y=0.6)
+
+        for diff, color in [('easy', (0.1, 0.6, 0.3, 1)), ('medium', (0.7, 0.5, 0.1, 1)), ('hard', (0.7, 0.1, 0.1, 1))]:
+            btn = Button(text=diff.title(), size_hint=(0.7, 0.33),
+                         background_normal='', font_size=dp(24), color=(0,0,0))
+            with btn.canvas.before:
+                Color(*color)
+                Rectangle(pos=btn.pos, size=btn.size)
+                Color(0, 0, 0, 1)  # Black border
+                Line(rectangle=(btn.pos[0], btn.pos[1], btn.width, btn.height), width=1)
             btn.bind(on_release=lambda x, d=diff: self.start_game(d))
-            layout.add_widget(btn)
+            btn.bind(pos=lambda instance, value, b=btn, c=color: self._update_btn(b, c),
+                   size=lambda instance, value, b=btn, c=color: self._update_btn(b, c))
+
+            btn_layout = BoxLayout()
+            btn_layout.add_widget(BoxLayout(size_hint_x=0.15))
+            btn_layout.add_widget(btn)
+            btn_layout.add_widget(BoxLayout(size_hint_x=0.15))
+            buttons_layout.add_widget(btn_layout)
+
+        layout.add_widget(buttons_layout)
+        layout.add_widget(BoxLayout(size_hint_y=0.15))
+
+        with self.canvas.before:
+            Color(0.97, 0.97, 0.97, 1)  # Professional white background
+            self.rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._update_rect, size=self._update_rect)
+
         self.add_widget(layout)
+
+    def _update_rect(self, instance, value):
+        self.rect.pos = instance.pos
+        self.rect.size = instance.size
+
+    def _update_back_btn(self, instance, value):
+        instance.canvas.before.clear()
+        with instance.canvas.before:
+            Color(0.1, 0.3, 0.5, 1)  # Professional blue
+            Rectangle(pos=instance.pos, size=instance.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(instance.x, instance.y, instance.width, instance.height), width=1)
+
+    def _update_btn(self, btn, color):
+        btn.canvas.before.clear()
+        with btn.canvas.before:
+            Color(*color)
+            Rectangle(pos=btn.pos, size=btn.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(btn.x, btn.y, btn.width, btn.height), width=1)
+
     def start_game(self, difficulty):
         game_screen = self.manager.get_screen('game')
         game_screen.setup_game(difficulty, True)
         self.manager.current = 'game'
-class GameScreen(MDScreen):
+
+class GameScreen(Screen):
     current_player = StringProperty('X')
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.game_data = GameData()
         self.start_time = None
         self.setup_ui()
+    def _adjust_board_size(self, instance, value):
+        """Force the board to remain a square and center it."""
+        size = min(instance.width, instance.height) * 0.8  # 80% of the smaller dimension
+        instance.children[0].size = (size, size)  # Update board_container size
+
     def setup_ui(self):
-        layout = MDBoxLayout(orientation='vertical', padding=dp(16), spacing=dp(8))
-        header = MDBoxLayout(size_hint_y=0.1)
-        back_btn = MDIconButton(icon="arrow-left")
+        layout = BoxLayout(orientation='vertical', padding=dp(10), spacing=dp(10))
+
+        header = BoxLayout(size_hint_y=0.15)
+        back_btn = Button(
+            text="Back",
+            size_hint=(None, None),  # Allow manual size control
+            font_size=dp(30),
+            color=(0, 0, 0),
+            background_normal='',
+            padding=(dp(10), dp(10)),  # Padding for spacing
+            pos_hint={'x': 0, 'top': 1}  # Fixed to top-left corner
+        )
+        with back_btn.canvas.before:
+            Color(0.1, 0.3, 0.5, 1)  # Professional blue
+            Rectangle(pos=back_btn.pos, size=back_btn.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(back_btn.pos[0], back_btn.pos[1], back_btn.width, back_btn.height), width=1)
         back_btn.bind(on_release=self.go_back)
+        back_btn.bind(pos=self._update_back_btn, size=self._update_back_btn)
         header.add_widget(back_btn)
-        self.status_label = MDLabel(text='', halign='center')
+
+        self.status_label = Label(text='', font_size=dp(22), color=(0.1, 0.3, 0.5, 1))
         header.add_widget(self.status_label)
+        header.add_widget(BoxLayout(size_hint_x=0.15))
+
         layout.add_widget(header)
-        self.board = MDGridLayout(cols=3, spacing=dp(8))
-        self.buttons = [GameButton(text='') for _ in range(9)]
-        for btn in self.buttons: 
-            btn.bind(on_release=self.make_move)
+
+        # Centering the board and forcing square shape
+        board_container = BoxLayout(size_hint=(None, None), size=(dp(300), dp(300)), pos_hint={'center_x': 0.5, 'center_y': 0.5})
+        self.board = GridLayout(cols=3, rows=3, spacing=0, size_hint=(1, 1))  # No spacing for joined blocks
+
+        self.buttons = [GameButton() for _ in range(9)]
+        for i, btn in enumerate(self.buttons):
+            btn.bind(on_release=lambda x, idx=i: self.make_move(idx))
             self.board.add_widget(btn)
-        layout.add_widget(self.board)
+
+        board_container.add_widget(self.board)
+        layout.add_widget(board_container)
+
+        # Bind size to ensure it's a square
+        layout.bind(size=self._adjust_board_size)
+
+
+        with self.canvas.before:
+            Color(0.97, 0.97, 0.97, 1)  # Professional white background
+            self.rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._update_rect, size=self._update_rect)
+
         self.add_widget(layout)
+
+    def _update_rect(self, instance, value):
+        self.rect.pos = instance.pos
+        self.rect.size = instance.size
+
+    def _update_back_btn(self, instance, value):
+        instance.canvas.before.clear()
+        with instance.canvas.before:
+            Color(0.1, 0.3, 0.5, 1)  # Professional blue
+            Rectangle(pos=instance.pos, size=instance.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(instance.x, instance.y, instance.width, instance.height), width=1)
+
     def setup_game(self, difficulty, is_ai):
         self.difficulty = difficulty
         self.is_ai = is_ai
         self.ai = AIEngine(difficulty) if is_ai else None
         self.reset_game()
         self.start_time = datetime.now()
-    def make_move(self, button):
-        if button.text or self.game_over: return
-        button.text = self.current_player
-        self.animate_button(button)
+
+        # Update game logs
+        log_screen = self.manager.get_screen('logs')
+        mode = f"AI ({difficulty})" if is_ai else "Two Players"
+        log_screen.add_log(f"Started new game: {mode}")
+
+    def make_move(self, idx):
+        if self.game_over or self.buttons[idx].mark: return
+        self.buttons[idx].set_mark(self.current_player)
         if self.check_game_state():
-            if self.is_ai and not self.game_over:
+            if self.is_ai and self.current_player == 'O' and not self.game_over:
                 Clock.schedule_once(lambda dt: self.make_ai_move(), 0.5)
+
     def make_ai_move(self):
-        board = [btn.text for btn in self.buttons]
+        board = [btn.mark for btn in self.buttons]
         move = self.ai.get_move(board)
         if move is not None:
-            self.buttons[move].text = 'O'
-            self.animate_button(self.buttons[move])
+            self.buttons[move].set_mark('O')
             self.check_game_state()
-    def animate_button(self, button):
-        anim = Animation(md_bg_color=[0.9, 0.7, 0.7, 1] if button.text == 'X' else [0.7, 0.7, 0.9, 1], duration=0.2)
-        anim.start(button)
+
     def check_game_state(self):
-        board = [btn.text for btn in self.buttons]
-        winner = self.ai.check_winner(board) if self.is_ai else self.check_winner(board)
-        if winner or '' not in board:
-            self.handle_game_end(winner if winner else 'draw')
+        board = [btn.mark for btn in self.buttons]
+        winner = self.check_winner(board)
+        if winner:
+            self.handle_game_end(winner)
             return False
-        self.current_player = 'O' if self.current_player == 'X' else 'X'
-        self.status_label.text = f"{'Your' if self.current_player == 'X' else 'AI' if self.is_ai else 'Player O'}'s Turn"
-        return True
-
-    def check_game_state(self):
-        board = [btn.text for btn in self.buttons]
-        winner = self.check_winner(board)  # Check for a winner
-
-        # Check for draw condition before changing players
-        if winner or '' not in board:  # If there's a winner or no empty spots
-            self.handle_game_end(winner if winner else 'draw')  # Call end game with winner or draw
-            return False  # Game is over
-
-        # Switch players only if the game is not over
+        elif '' not in board:
+            self.handle_game_end('draw')
+            return False
         self.current_player = 'O' if self.current_player == 'X' else 'X'
         self.status_label.text = f"{'Your' if self.current_player == 'X' else 'AI' if self.is_ai else 'Player O'}'s Turn"
         return True
@@ -251,89 +406,191 @@ class GameScreen(MDScreen):
         self.game_data.update_time(elapsed)
         self.game_data.update_game(result)
 
-        # Display appropriate message based on the result
         if result == 'draw':
             msg = "It's a Draw!"
+            log_msg = "Game ended in a draw"
         elif result == 'X':
             msg = "You Won!"
+            log_msg = "Player X won the game"
         elif result == 'O':
             msg = "AI Wins!" if self.is_ai else "Player O Wins!"
-        
-        dialog = MDDialog(
-            title="Game Over",
-            text=msg,
-            buttons=[MDFlatButton(text="PLAY AGAIN", on_release=lambda x: self.handle_replay(dialog))]
-        )
-        dialog.open()
+            log_msg = f"{'AI' if self.is_ai else 'Player O'} won the game"
 
-    def handle_replay(self, dialog):
-        dialog.dismiss()
+        # Update game logs
+        log_screen = self.manager.get_screen('logs')
+        log_screen.add_log(log_msg)
+
+        content = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(20))
+        content.add_widget(Label(text=msg, font_size=dp(24)))
+        btn = Button(text="PLAY AGAIN", size_hint=(0.5, None), height=dp(50),
+                    background_normal='', color=(0,0,0))
+        with btn.canvas.before:
+            Color(0.1, 0.3, 0.5, 1)  # Professional blue
+            Rectangle(pos=btn.pos, size=btn.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(btn.pos[0], btn.pos[1], btn.width, btn.height), width=1)
+        btn.bind(pos=self._update_popup_btn, size=self._update_popup_btn)
+
+        btn_layout = BoxLayout()
+        btn_layout.add_widget(BoxLayout())
+        btn_layout.add_widget(btn)
+        btn_layout.add_widget(BoxLayout())
+        content.add_widget(btn_layout)
+
+        popup = Popup(title="Game Over", content=content, size_hint=(0.8, 0.4),
+                     title_color=(0.1, 0.3, 0.5, 1), title_size=dp(20))
+        btn.bind(on_release=lambda x: self.handle_replay(popup))
+        popup.open()
+
+    def _update_popup_btn(self, instance, value):
+        instance.canvas.before.clear()
+        with instance.canvas.before:
+            Color(0.1, 0.3, 0.5, 1)  # Professional blue
+            Rectangle(pos=instance.pos, size=instance.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(instance.x, instance.y, instance.width, instance.height), width=1)
+
+    def handle_replay(self, popup):
+        popup.dismiss()
         self.reset_game()
+
+        # Update game logs
+        log_screen = self.manager.get_screen('logs')
+        mode = f"AI ({self.difficulty})" if self.is_ai else "Two Players"
+        log_screen.add_log(f"Started new game: {mode}")
+
     def reset_game(self):
         self.game_over = False
         self.current_player = 'X'
         for btn in self.buttons:
-            btn.text = ''
-            btn.md_bg_color = [0.95, 0.95, 0.95, 1]
+            btn.mark = ''
+            btn.canvas.after.clear()
         self.status_label.text = "Your Turn"
         self.start_time = datetime.now()
+
     def check_winner(self, board):
         wins = [(0,1,2), (3,4,5), (6,7,8), (0,3,6), (1,4,7), (2,5,8), (0,4,8), (2,4,6)]
         for i, j, k in wins:
-            if board[i] and board[i] == board[j] == board[k]: return board[i]
+            if board[i] and board[i] == board[j] == board[k]:
+                return board[i]
         return None
+
     def go_back(self, *args):
         if self.start_time:
             self.game_data.update_time((datetime.now() - self.start_time).total_seconds())
         self.manager.current = 'home'
-class StatsScreen(MDScreen):
+
+class StatsScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        layout = MDBoxLayout(orientation='vertical', padding=dp(16))
-        back_btn = MDIconButton(icon="arrow-left")
+        layout = BoxLayout(orientation='vertical', padding=dp(20))
+
+        header = BoxLayout(size_hint_y=0.15)
+        back_btn = Button(text="←", size_hint=(0.15, 1), background_normal='',
+                         font_size=dp(30), color=(1, 1, 1, 1))
+        with back_btn.canvas.before:
+            Color(0.1, 0.3, 0.5, 1)  # Professional blue
+            Rectangle(pos=back_btn.pos, size=back_btn.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(back_btn.pos[0], back_btn.pos[1], back_btn.width, back_btn.height), width=1)
         back_btn.bind(on_release=lambda x: setattr(self.manager, 'current', 'home'))
-        layout.add_widget(back_btn)
-        self.stats_label = MDLabel(halign='center')
-        layout.add_widget(self.stats_label)
+        back_btn.bind(pos=self._update_back_btn, size=self._update_back_btn)
+        header.add_widget(back_btn)
+        header.add_widget(Label(text="Statistics", font_size=dp(28), color=(0.1, 0.3, 0.5, 1)))
+        header.add_widget(BoxLayout(size_hint_x=0.15))
+
+        layout.add_widget(header)
+
+        stats_container = BoxLayout(padding=dp(10))
+        self.stats_layout = GridLayout(cols=2, spacing=dp(10), padding=dp(20))
+        stats_container.add_widget(self.stats_layout)
+        layout.add_widget(stats_container)
+
+        with self.canvas.before:
+            Color(0.97, 0.97, 0.97, 1)  # Professional white background
+            self.rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._update_rect, size=self._update_rect)
+
         self.add_widget(layout)
+
+    def _update_rect(self, instance, value):
+        self.rect.pos = instance.pos
+        self.rect.size = instance.size
+
+    def _update_back_btn(self, instance, value):
+        instance.canvas.before.clear()
+        with instance.canvas.before:
+            Color(0.1, 0.3, 0.5, 1)  # Professional blue
+            Rectangle(pos=instance.pos, size=instance.size)
+            Color(0, 0, 0, 1)  # Black border
+            Line(rectangle=(instance.x, instance.y, instance.width, instance.height), width=1)
+
     def on_enter(self):
+        self.stats_layout.clear_widgets()
         game_data = GameData()
         stats = game_data.stats
         hours = stats['total_time'] // 3600
         minutes = (stats['total_time'] % 3600) // 60
-        self.stats_label.text = f"""
-Total Time: {int(hours)}h {int(minutes)}m
-Games Played: {stats['games']}
-X Wins: {stats['x_wins']}
-O Wins: {stats['o_wins']}
-Draws: {stats['draws']}
-Ratings:
-Easy: {int(game_data.ratings['easy'])}
-Medium: {int(game_data.ratings['medium'])}
-Hard: {int(game_data.ratings['hard'])}
-"""
-class LogScreen(MDScreen):
+
+        stat_items = [
+            ("Total Time", f"{int(hours)}h {int(minutes)}m"),
+            ("Games Played", str(stats['games'])),
+            ("X Wins", str(stats['x_wins'])),
+            ("O Wins", str(stats['o_wins'])),
+            ("Draws", str(stats['draws'])),
+            ("Easy Rating", str(int(game_data.ratings['easy']))),
+            ("Medium Rating", str(int(game_data.ratings['medium']))),
+            ("Hard Rating", str(int(game_data.ratings['hard'])))
+        ]
+
+        for key, value in stat_items:
+            label1 = Label(text=key, font_size=dp(18), color=(0.1, 0.1, 0.1, 1), halign='right')
+            label2 = Label(text=value, font_size=dp(18), color=(0.1, 0.3, 0.5, 1), halign='left')
+            self.stats_layout.add_widget(label1)
+            self.stats_layout.add_widget(label2)
+
+
+
+
+class LogScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        layout = MDBoxLayout(orientation='vertical', padding=dp(16))
-        back_btn = MDIconButton(icon="arrow-left")
+        layout = BoxLayout(orientation='vertical', padding=dp(20))
+
+        header = BoxLayout(size_hint_y=0.15)
+        back_btn = Button(text="back", size_hint=(0.15, 1), background_color=(0,0,0),
+                         font_size=dp(30), background_normal='')
         back_btn.bind(on_release=lambda x: setattr(self.manager, 'current', 'home'))
-        layout.add_widget(back_btn)
-        self.log_label = MDLabel(text="Game Logs\n", halign='left')
-        layout.add_widget(self.log_label)
+        header.add_widget(back_btn)
+        header.add_widget(Label(text="Game Logs", font_size=dp(28), color=(0.2, 0.6, 0.8, 1)))
+        header.add_widget(BoxLayout(size_hint_x=0.15))
+
+        layout.add_widget(header)
+
+        self.log_label = Label(text="Game Logs\n", font_size=dp(16), color=(0.2, 0.2, 0.2, 1), halign='left', valign='top')
+        self.log_label.bind(size=self.log_label.setter('text_size'))
+        scroll_layout = BoxLayout(padding=dp(10))
+        scroll_layout.add_widget(self.log_label)
+        layout.add_widget(scroll_layout)
+
+        with self.canvas.before:
+            Color(0.95, 0.95, 0.98, 1)
+            self.rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._update_rect, size=self._update_rect)
+
         self.add_widget(layout)
+
+    def _update_rect(self, instance, value):
+        self.rect.pos = instance.pos
+        self.rect.size = instance.size
+
     def add_log(self, message):
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.log_label.text += f"[{timestamp}] {message}\n"
 
-
-class TicTacToeApp(MDApp):
+class TicTacToeApp(App):
     def build(self):
-        self.theme_cls.primary_palette = "Blue"
-        self.theme_cls.theme_style = "Light"
-        sm = MDScreenManager()
-        
-        # Add all screens to the screen manager
+        sm = ScreenManager()
         screens = [
             HomeScreen(name='home'),
             DifficultyScreen(name='difficulty'),
@@ -341,16 +598,15 @@ class TicTacToeApp(MDApp):
             StatsScreen(name='stats'),
             LogScreen(name='logs')
         ]
-        
         for screen in screens:
             sm.add_widget(screen)
-        
         return sm
+
     def on_start(self):
         if platform == 'android':
-            from android.permissions import request_permissions, Permission, check_permission
-            from android.storage import primary_external_storage_path
-            request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE,Permission.READ_MEDIA_IMAGES,Permission.READ_MEDIA_VIDEO,Permission.READ_MEDIA_AUDIO])
+            from android.permissions import request_permissions, Permission
+            request_permissions([Permission.WRITE_EXTERNAL_STORAGE, Permission.READ_EXTERNAL_STORAGE,
+                               Permission.READ_MEDIA_IMAGES, Permission.READ_MEDIA_VIDEO, Permission.READ_MEDIA_AUDIO])
 
 if __name__ == '__main__':
     TicTacToeApp().run()
